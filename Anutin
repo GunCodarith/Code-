@@ -1,0 +1,152 @@
+#include <Wire.h>
+#include <LiquidCrystal_I2C.h>
+
+// ตั้งค่าจอ LCD I2C (Address 0x26 ตามที่คุณสแกนเจอ)
+LiquidCrystal_I2C lcd(0x26, 16, 2);
+
+// กำหนดขา LED และปุ่ม
+const int ledPins[3] = {2, 3, 4};   // ไฟดวงที่ 1, 2, 3
+const int btnPins[3] = {8, 9, 10};  // ปุ่มที่ 1, 2, 3
+
+int answer = -1;
+bool gameStarted = false;
+
+// เวลาจำกัดในการกด (1 วินาที = 1000 ms)
+const unsigned long pressTimeLimit = 1000;
+
+void setup() {
+  // ตั้งค่าขา Input/Output
+  for (int i = 0; i < 3; i++) {
+    pinMode(ledPins[i], OUTPUT);
+    pinMode(btnPins[i], INPUT_PULLUP); // ใช้ Pull-up ภายใน (กดปุ่ม=LOW)
+  }
+
+  // เริ่มต้นจอ LCD
+  lcd.init();
+  lcd.backlight();
+
+  // สุ่ม Seed จากขา A0 (ต้องแน่ใจว่า A0 ลอยไว้ไม่ได้ต่ออะไร)
+  randomSeed(analogRead(A0));
+
+  showStartScreen();
+}
+
+void loop() {
+  // ===== 1. หน้าจอรอเริ่มเกม =====
+  if (!gameStarted) {
+    for (int i = 0; i < 3; i++) {
+      // ถ้ามีปุ่มใดปุ่มหนึ่งถูกกด
+      if (digitalRead(btnPins[i]) == LOW) {
+        delay(50); // กันสั่น (Debounce)
+        waitRelease(i); // รอให้ปล่อยปุ่มก่อน
+        gameStarted = true;
+        startGame(); // เริ่มเกม
+      }
+    }
+    return; // วนกลับไปรอใหม่ถ้ายังไม่มีใครกด
+  }
+
+  // ===== 2. เข้าสู่ช่วงจับเวลา (ผู้เล่นต้องกดปุ่ม) =====
+  unsigned long startTime = millis();
+  bool pressed = false;
+
+  while (millis() - startTime < pressTimeLimit) {
+    for (int i = 0; i < 3; i++) {
+      if (digitalRead(btnPins[i]) == LOW) { // เจอปุ่มที่ถูกกด
+        waitRelease(i); // รอปล่อยปุ่ม
+
+        if (i == answer) {
+          showDice(); // ถูกต้อง -> ทอยลูกเต๋า
+        } else {
+          showFail(); // ผิด -> จบเกม
+        }
+
+        resetGame(); // รีเซ็ตไปหน้าแรก
+        pressed = true;
+        return; // ออกจาก loop
+      }
+    }
+  }
+
+  // ===== 3. ถ้าหมดเวลาแล้วยังไม่กด =====
+  if (!pressed) {
+    showFail();
+    resetGame();
+  }
+}
+
+// ================= ฟังก์ชันต่างๆ =================
+
+void showStartScreen() {
+  lcd.clear();
+  lcd.setCursor(0, 0);
+  lcd.print("Reflex Game");
+  lcd.setCursor(0, 1);
+  lcd.print("Press Any Btn");
+}
+
+void startGame() {
+  lcd.clear();
+  lcd.print("Memorize!"); // บอกให้จำ
+
+  // สุ่มไฟ 1 ดวง (0, 1 หรือ 2)
+  answer = random(0, 3);
+  digitalWrite(ledPins[answer], HIGH); // เปิดไฟ
+
+  delay(1000); // ให้เวลาจำ 1 วินาที
+
+  digitalWrite(ledPins[answer], LOW); // ปิดไฟ
+
+  lcd.clear();
+  lcd.print("Press Button!"); // สั่งให้กด
+}
+
+void showDice() {
+  lcd.clear();
+  lcd.print("Dice Roll:");
+
+  // สุ่มเลข 1-20
+  int dice = random(1, 21);
+
+  lcd.setCursor(0, 1);
+  lcd.print("Result: ");
+  lcd.print(dice);
+
+  // กระพริบไฟแสดงความยินดี
+  for(int k=0; k<3; k++){
+    digitalWrite(ledPins[0], HIGH);
+    digitalWrite(ledPins[1], HIGH);
+    digitalWrite(ledPins[2], HIGH);
+    delay(100);
+    digitalWrite(ledPins[0], LOW);
+    digitalWrite(ledPins[1], LOW);
+    digitalWrite(ledPins[2], LOW);
+    delay(100);
+  }
+  
+  delay(1500); // โชว์ค้างไว้แป๊บนึง
+}
+
+void showFail() {
+  lcd.clear();
+  lcd.print("FAIL !!!");
+  
+  // เปิดไฟแดงค้างไว้เตือนว่าผิด (สมมติไฟผิดกระพริบ)
+  digitalWrite(ledPins[answer], HIGH);
+  delay(500);
+  digitalWrite(ledPins[answer], LOW);
+  delay(1000);
+}
+
+void resetGame() {
+  answer = -1;
+  gameStarted = false;
+  showStartScreen();
+}
+
+// ฟังก์ชันรอการปล่อยปุ่ม (เพื่อให้กดทีเดียวติดทีเดียว)
+void waitRelease(int btnIndex) {
+  while (digitalRead(btnPins[btnIndex]) == LOW) {
+    delay(10);
+  }
+}
